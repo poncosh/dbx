@@ -32,6 +32,8 @@ const { t } = useI18n();
 const { toast } = useToast();
 const exporting = ref(false);
 const exportFormats: { format: ExplainPlanExportFormat; label: string }[] = [
+  { format: "svg", label: "diagram.exportSvg" },
+  { format: "png", label: "diagram.exportPng" },
   { format: "html", label: "grid.exportHtml" },
   { format: "csv", label: "grid.exportCsv" },
   { format: "xlsx", label: "grid.exportXlsx" },
@@ -47,6 +49,12 @@ async function exportPlan(format: ExplainPlanExportFormat) {
       EXPLAIN_PLAN_EXPORT_COLUMN_KEYS.map((key) => t(key)),
       t("explain.estimatedTime"),
       `${t("explain.title")} · ${props.plan.databaseType.toUpperCase()}`,
+      {
+        cost: t("explain.cost"),
+        estimatedRows: t("explain.estRows"),
+        legendHeat: t("explain.legendHeat"),
+        legendEdge: t("explain.legendEdge"),
+      },
     );
     if (saved) toast(t("grid.exported"));
   } catch (error) {

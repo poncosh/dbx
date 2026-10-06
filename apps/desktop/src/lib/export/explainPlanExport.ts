@@ -4,9 +4,14 @@ import * as api from "@/lib/backend/api";
 import { isTauriRuntime } from "@/lib/backend/tauriRuntime";
 import { useSettingsStore } from "@/stores/settingsStore";
 import { csvNullLiteralForMode } from "./csvNullMode";
+import { svgToPngBlob } from "./diagramFormats";
+import { buildExplainPlanSvg, type ExplainPlanSvgLabels } from "./explainPlanSvgExport";
 import { promptExportSavePath } from "./exportPath";
+import { saveDiagramBinaryExport, saveDiagramTextExport } from "./saveDiagramExport";
 
-export type ExplainPlanExportFormat = "html" | "csv" | "xlsx";
+export type ExplainPlanExportFormat = "svg" | "png" | "html" | "csv" | "xlsx";
+
+export type ExplainPlanDiagramExportLabels = Omit<ExplainPlanSvgLabels, "title">;
 
 export const EXPLAIN_PLAN_EXPORT_COLUMN_KEYS = ["explain.node", "explain.relation", "explain.index", "explain.cost", "explain.rows", "explain.details"] as const;
 
@@ -21,12 +26,26 @@ export function explainPlanExportRows(nodes: ExplainPlanNode[], estimatedTimeLab
   return rows;
 }
 
-export async function saveExplainPlanExport(plan: ParsedExplainPlan, format: ExplainPlanExportFormat, columns: string[], estimatedTimeLabel: string, title: string): Promise<boolean> {
+export async function saveExplainPlanExport(plan: ParsedExplainPlan, format: ExplainPlanExportFormat, columns: string[], estimatedTimeLabel: string, title: string, diagramLabels?: ExplainPlanDiagramExportLabels): Promise<boolean> {
   // Materialize before awaiting the save dialog: another query may replace the plan.
   const rows = explainPlanExportRows(plan.nodes, estimatedTimeLabel);
   if (!rows.length) return false;
+  const defaultPath = `explain-plan-${plan.databaseType}.${format}`;
+  if (format === "svg" || format === "png") {
+    const svg = buildExplainPlanSvg(plan.nodes, {
+      title,
+      cost: diagramLabels?.cost ?? "Cost",
+      estimatedRows: diagramLabels?.estimatedRows ?? "Estimated rows",
+      legendHeat: diagramLabels?.legendHeat ?? "Cost heat",
+      legendEdge: diagramLabels?.legendEdge ?? "Edge thickness = estimated rows",
+    });
+    if (format === "svg") return saveDiagramTextExport(defaultPath, svg, "svg");
+    const png = await svgToPngBlob(svg, 2);
+    return saveDiagramBinaryExport(defaultPath, png, "png");
+  }
+
   const { csvQuoteMode, csvNullMode } = useSettingsStore().editorSettings;
-  let path = `explain-plan-${plan.databaseType}.${format}`;
+  let path = defaultPath;
   if (isTauriRuntime()) {
     const selectedPath = await promptExportSavePath({
       defaultFileName: path,

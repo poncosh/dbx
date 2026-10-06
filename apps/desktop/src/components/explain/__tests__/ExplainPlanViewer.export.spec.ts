@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+// oxlint-disable-next-line typescript/triple-slash-reference -- Test specs are excluded from the app tsconfig, so the editor needs the Vue declaration explicitly.
 /// <reference path="../../../env.d.ts" />
 
 import { createApp, defineComponent, h, nextTick, type Component } from "vue";
@@ -85,15 +86,22 @@ afterEach(() => {
 
 describe("ExplainPlanViewer export", () => {
   it.each([
+    ["diagram.exportSvg", "svg"],
+    ["diagram.exportPng", "png"],
     ["grid.exportHtml", "html"],
     ["grid.exportCsv", "csv"],
     ["grid.exportXlsx", "xlsx"],
-  ] as const)("exports the complete Summary through %s", async (label, format) => {
+  ] as const)("exports through %s", async (label, format) => {
     await mountViewer();
     exportItem(label).dispatchEvent(new Event("select", { bubbles: true }));
 
     await vi.waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1));
-    expect(mocks.save).toHaveBeenCalledWith(plan, format, ["explain.node", "explain.relation", "explain.index", "explain.cost", "explain.rows", "explain.details"], "explain.estimatedTime", "explain.title · ORACLE");
+    expect(mocks.save).toHaveBeenCalledWith(plan, format, ["explain.node", "explain.relation", "explain.index", "explain.cost", "explain.rows", "explain.details"], "explain.estimatedTime", "explain.title · ORACLE", {
+      cost: "explain.cost",
+      estimatedRows: "explain.estRows",
+      legendHeat: "explain.legendHeat",
+      legendEdge: "explain.legendEdge",
+    });
     expect(mocks.toast).toHaveBeenCalledWith("grid.exported");
   });
 
