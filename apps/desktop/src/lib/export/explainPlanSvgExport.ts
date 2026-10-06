@@ -1,24 +1,13 @@
 import type { ExplainPlanNode } from "@/lib/diagram/explainPlan";
 import type { PlanCanvasCategory } from "@/lib/diagram/planCanvas";
-import { buildPlanCanvas, edgeStrokeWidth, formatPlanRows, heatLevel, PLAN_CANVAS_GAP_X, PLAN_CANVAS_NODE_H, PLAN_CANVAS_NODE_W } from "@/lib/diagram/planCanvas";
+import { buildPlanCanvas, edgeStrokeWidth, formatPlanRows, heatLevel, PLAN_CATEGORY_COLORS, PLAN_CANVAS_GAP_X, PLAN_CANVAS_NODE_H, PLAN_CANVAS_NODE_W } from "@/lib/diagram/planCanvas";
+import { escapeXml, svgNumber, svgText } from "./svgPrimitives";
 
 const HEADER_HEIGHT = 36;
 const LEGEND_HEIGHT = 42;
 const MIN_EXPORT_WIDTH = 600;
 
-const CATEGORY_COLORS: Record<PlanCanvasCategory, string> = {
-  result: "#a78bfa",
-  sort: "#38bdf8",
-  join: "#f472b6",
-  tscan: "#fb923c",
-  iscan: "#34d399",
-  lookup: "#2dd4bf",
-  mat: "#94a3b8",
-  agg: "#c084fc",
-  xchg: "#facc15",
-  mod: "#f87171",
-  other: "#71717a",
-};
+const CATEGORY_COLORS: Record<PlanCanvasCategory, string> = PLAN_CATEGORY_COLORS;
 
 const HEAT_COLORS = {
   none: "#71717a",
@@ -35,24 +24,9 @@ export interface ExplainPlanSvgLabels {
   legendEdge: string;
 }
 
-function escapeXml(value: string | number): string {
-  return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
-}
-
-function svgNumber(value: number): string {
-  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, "");
-}
-
 function truncate(value: string, limit: number): string {
   const characters = Array.from(value);
   return characters.length <= limit ? value : `${characters.slice(0, Math.max(1, limit - 1)).join("")}…`;
-}
-
-function text(label: string, x: number, y: number, options: { size?: number; fill?: string; weight?: string; anchor?: "start" | "middle" | "end"; family?: string } = {}): string {
-  const attributes = [`x="${svgNumber(x)}"`, `y="${svgNumber(y)}"`, `fill="${options.fill ?? "#18181b"}"`, `font-size="${options.size ?? 12}"`, `font-family="${options.family ?? "Arial, Helvetica, sans-serif"}"`, 'dominant-baseline="middle"'];
-  if (options.weight) attributes.push(`font-weight="${options.weight}"`);
-  if (options.anchor) attributes.push(`text-anchor="${options.anchor}"`);
-  return `<text ${attributes.join(" ")}>${escapeXml(label)}</text>`;
 }
 
 function nodeTooltip(node: ExplainPlanNode, labels: ExplainPlanSvgLabels): string {
@@ -70,7 +44,7 @@ export function buildExplainPlanSvg(nodes: ExplainPlanNode[], labels: ExplainPla
     '<defs><pattern id="explain-plan-grid" width="28" height="28" patternUnits="userSpaceOnUse"><path d="M 28 0 L 0 0 0 28" fill="none" stroke="#e4e4e7" stroke-width="1"/></pattern></defs>',
     `<rect width="${svgNumber(width)}" height="${svgNumber(height)}" fill="#fafafa"/>`,
     `<rect y="${HEADER_HEIGHT}" width="${svgNumber(width)}" height="${svgNumber(layout.height)}" fill="url(#explain-plan-grid)"/>`,
-    text(labels.title, 18, HEADER_HEIGHT / 2, { size: 13, weight: "700" }),
+    svgText(labels.title, 18, HEADER_HEIGHT / 2, { size: 13, weight: "700" }),
     `<path d="M 0 ${HEADER_HEIGHT} H ${svgNumber(width)}" stroke="#d4d4d8"/>`,
     `<g transform="translate(0 ${HEADER_HEIGHT})">`,
     '<g class="plan-edges" fill="none" stroke="#71717a" stroke-linejoin="round" stroke-linecap="round">',
@@ -106,21 +80,21 @@ export function buildExplainPlanSvg(nodes: ExplainPlanNode[], labels: ExplainPla
     parts.push(`<path d="M 3 8 V ${PLAN_CANVAS_NODE_H - 8}" stroke="${heatColor}" stroke-width="3" stroke-linecap="round"/>`);
     parts.push(`<rect x="12" y="9" width="20" height="20" rx="5" fill="${categoryColor}" fill-opacity="0.18"/>`);
     parts.push(`<circle cx="22" cy="19" r="4" fill="${categoryColor}"/>`);
-    parts.push(text(truncate(operation, titleLimit), 39, 19, { size: 12, weight: "700" }));
+    parts.push(svgText(truncate(operation, titleLimit), 39, 19, { size: 12, weight: "700" }));
     if (share) {
       parts.push(`<rect x="166" y="10" width="36" height="18" rx="4" fill="${heatColor}" fill-opacity="0.14"/>`);
-      parts.push(text(share, 184, 19, { size: 9, fill: heatColor, weight: "700", anchor: "middle", family: "Menlo, Consolas, monospace" }));
+      parts.push(svgText(share, 184, 19, { size: 9, fill: heatColor, weight: "700", anchor: "middle", family: "Menlo, Consolas, monospace" }));
     }
-    parts.push(text(objectName ? truncate(objectName, 32) : " ", 12, 43, { size: 10, fill: "#52525b", family: "Menlo, Consolas, monospace" }));
-    parts.push(text(`${truncate(labels.estimatedRows, 15)} ${formatPlanRows(item.rows)}`, 12, 62, { size: 10, fill: "#52525b", family: "Menlo, Consolas, monospace" }));
-    parts.push(text(`${truncate(labels.cost, 8)} ${truncate(node.cost || "—", 13)}`, 202, 62, { size: 10, fill: "#52525b", anchor: "end", family: "Menlo, Consolas, monospace" }));
+    parts.push(svgText(objectName ? truncate(objectName, 32) : " ", 12, 43, { size: 10, fill: "#52525b", family: "Menlo, Consolas, monospace" }));
+    parts.push(svgText(`${truncate(labels.estimatedRows, 15)} ${formatPlanRows(item.rows)}`, 12, 62, { size: 10, fill: "#52525b", family: "Menlo, Consolas, monospace" }));
+    parts.push(svgText(`${truncate(labels.cost, 8)} ${truncate(node.cost || "—", 13)}`, 202, 62, { size: 10, fill: "#52525b", anchor: "end", family: "Menlo, Consolas, monospace" }));
     parts.push("</g>");
   });
 
   parts.push("</g>");
   const legendY = HEADER_HEIGHT + layout.height + LEGEND_HEIGHT / 2;
   parts.push(`<path d="M 0 ${HEADER_HEIGHT + layout.height} H ${svgNumber(width)}" stroke="#d4d4d8"/>`);
-  parts.push(text(labels.legendHeat, 18, legendY, { size: 10, fill: "#52525b" }));
+  parts.push(svgText(labels.legendHeat, 18, legendY, { size: 10, fill: "#52525b" }));
   let legendX = 18 + Math.min(150, Math.max(65, Array.from(labels.legendHeat).length * 6));
   for (const [color, label] of [
     [HEAT_COLORS.cool, "< 5%"],
@@ -128,10 +102,10 @@ export function buildExplainPlanSvg(nodes: ExplainPlanNode[], labels: ExplainPla
     [HEAT_COLORS.hot, "> 20%"],
   ] as const) {
     parts.push(`<rect x="${svgNumber(legendX)}" y="${svgNumber(legendY - 5)}" width="10" height="10" rx="2" fill="${color}"/>`);
-    parts.push(text(label, legendX + 15, legendY, { size: 10, fill: "#52525b" }));
+    parts.push(svgText(label, legendX + 15, legendY, { size: 10, fill: "#52525b" }));
     legendX += 65;
   }
-  parts.push(text(labels.legendEdge, legendX + 8, legendY, { size: 10, fill: "#52525b" }));
+  parts.push(svgText(labels.legendEdge, legendX + 8, legendY, { size: 10, fill: "#52525b" }));
   parts.push(`<path d="M ${svgNumber(legendX + 8 + Math.min(120, Array.from(labels.legendEdge).length * 6) + 10)} ${svgNumber(legendY)} h 28" stroke="#71717a" stroke-width="4" stroke-linecap="round"/>`);
   parts.push("</svg>");
   return parts.join("");
