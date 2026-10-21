@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { beforeEach, test, vi } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 import { createPinia, setActivePinia } from "pinia";
 import { decodeSchemaTreeCache, encodeSchemaTreeCache, encodeTableSearchIndexManifest, type TableSearchIndexManifestEntry } from "../../apps/desktop/src/lib/metadata/schemaTreeCache.ts";
 import type { ConnectionConfig, TreeNode } from "../../apps/desktop/src/types/database.ts";
@@ -523,6 +523,154 @@ test("refreshSidebarTableSearchIndex is the only path that paginates listTables"
     const scopes = await store.loadSidebarTableSearchIndexScopes();
     assert.equal(scopes.length, 1);
     assert.equal(scopes[0]?.entries.length, 501);
+  } finally {
+    restoreStorage();
+  }
+});
+
+test("global and per-database searches share one build, then reuse memory and persisted indexes", async () => {
+  const restoreStorage = installMemoryStorage();
+  try {
+    setActivePinia(createPinia());
+    const store = useConnectionStore();
+    store.addEphemeralConnection(conn("conn-1"));
+    store.connectedIds.add("conn-1");
+    const { root, groups } = connectionNodeWithTableGroups("app");
+    store.treeNodes.push(root);
+    const rows = Array.from({ length: 501 }, (_, index) => ({ name: `table_${index}`, table_type: "TABLE" }));
+    listTablesMock.mockImplementation(async (_connectionId: string, _database: string, _schema: string, _filter: unknown, limit: number, offset: number) => rows.slice(offset, offset + limit));
+    const global = store.ensureSidebarTableSearchIndex(groups.app.id, "t", undefined, { connectedOnly: true });
+    const local = store.ensureSidebarTableSearchIndex(groups.app.id, "table");
+    expect(await global).toEqual(rows);
+    expect(await local).toEqual(rows);
+    const buildRequests = listTablesMock.mock.calls.length;
+    const cacheReads = loadSchemaCacheMock.mock.calls.length;
+    expect(buildRequests).toBe(Math.ceil(rows.length / listTablesMock.mock.calls[0][4]));
+    for (const query of ["ta", "table_500", "missing", "table"]) {
+      expect(await store.ensureSidebarTableSearchIndex(groups.app.id, query)).toEqual(rows);
+    }
+    expect(listTablesMock).toHaveBeenCalledTimes(buildRequests);
+    expect(loadSchemaCacheMock).toHaveBeenCalledTimes(cacheReads);
+    expect(groups.app.children).toEqual([]);
+
+    setActivePinia(createPinia());
+    const restarted = useConnectionStore();
+    restarted.addEphemeralConnection(conn("conn-1"));
+    restarted.treeNodes.push(connectionNodeWithTableGroups("app").root);
+    expect(await restarted.ensureSidebarTableSearchIndex(groups.app.id, "table_500", undefined, { connectedOnly: true })).toEqual(rows);
+    expect(listTablesMock).toHaveBeenCalledTimes(buildRequests);
+  } finally {
+    restoreStorage();
+  }
+});
+
+test("global search never builds an index for a disconnected datasource", async () => {
+  const restoreStorage = installMemoryStorage();
+  try {
+    setActivePinia(createPinia());
+    const store = useConnectionStore();
+    store.addEphemeralConnection(conn("conn-1"));
+    store.connectedIds.delete("conn-1");
+    const { root, groups } = connectionNodeWithTableGroups("app");
+    store.treeNodes.push(root);
+    expect(await store.ensureSidebarTableSearchIndex(groups.app.id, "table", undefined, { connectedOnly: true })).toBeNull();
+    expect(listTablesMock).not.toHaveBeenCalled();
+    expect(checkConnectionHealthMock).not.toHaveBeenCalled();
+  } finally {
+    restoreStorage();
+  }
+});
+
+test("keeps a completed index in memory when persistence is unavailable", async () => {
+  const restoreStorage = installMemoryStorage();
+  try {
+    setActivePinia(createPinia());
+    const store = useConnectionStore();
+    store.addEphemeralConnection(conn("conn-1"));
+    const { root, groups } = connectionNodeWithTableGroups("app");
+    store.treeNodes.push(root);
+    const rows = [{ name: "orders", table_type: "TABLE" }];
+    listTablesMock.mockResolvedValue(rows);
+    saveSchemaCacheMock.mockRejectedValue(new Error("disk full"));
+    expect(await store.ensureSidebarTableSearchIndex(groups.app.id, "ord")).toEqual(rows);
+    expect(await store.ensureSidebarTableSearchIndex(groups.app.id, "orders")).toEqual(rows);
+    expect(listTablesMock).toHaveBeenCalledTimes(1);
+  } finally {
+    restoreStorage();
+  }
+});
+
+test.each(["group-views", "group-materialized-views"] as const)("indexes and invalidates %s independently from tables", async (nodeType) => {
+  const restoreStorage = installMemoryStorage();
+  try {
+    setActivePinia(createPinia());
+    const store = useConnectionStore();
+    store.addEphemeralConnection(conn("conn-1"));
+    const { root, groups } = connectionNodeWithTableGroups("app");
+    const views: TreeNode = { ...groups.app, id: `${groups.app.id}:views`, type: nodeType };
+    root.children![0].children!.push(views);
+    store.treeNodes.push(root);
+    listTablesMock.mockResolvedValue([{ name: "orders_view", table_type: nodeType === "group-views" ? "VIEW" : "MATERIALIZED_VIEW" }]);
+    const indexed = await store.ensureSidebarTableSearchIndex(views.id, "orders");
+    expect(indexed?.[0].name).toBe("orders_view");
+    expect(listTablesMock.mock.calls[0][6]).toEqual([nodeType === "group-views" ? "VIEW" : "MATERIALIZED_VIEW"]);
+    await store.refreshTreeNode(views);
+    expect(await store.loadSidebarTableSearchIndex(views.id)).toBeNull();
+  } finally {
+    restoreStorage();
+  }
+});
+
+test("refresh invalidates a first build before it has registered a persisted scope", async () => {
+  const restoreStorage = installMemoryStorage();
+  try {
+    setActivePinia(createPinia());
+    const store = useConnectionStore();
+    store.addEphemeralConnection(conn("conn-1"));
+    const { root, groups } = connectionNodeWithTableGroups("app");
+    store.treeNodes.push(root);
+    let finishOld!: (rows: Array<{ name: string; table_type: string }>) => void;
+    const fresh = [{ name: "renamed_orders", table_type: "TABLE" }];
+    listTablesMock
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishOld = resolve;
+          }),
+      )
+      .mockResolvedValue(fresh);
+    const oldBuild = store.ensureSidebarTableSearchIndex(groups.app.id, "ord");
+    await vi.waitFor(() => expect(listTablesMock).toHaveBeenCalledTimes(1));
+    await store.refreshTreeNode(groups.app);
+    const replacement = await store.ensureSidebarTableSearchIndex(groups.app.id, "renamed");
+    finishOld([{ name: "old_orders", table_type: "TABLE" }]);
+    expect(await oldBuild).toEqual([]);
+    expect(replacement).toEqual(fresh);
+    expect(await store.loadSidebarTableSearchIndex(groups.app.id)).toEqual(fresh);
+  } finally {
+    restoreStorage();
+  }
+});
+
+test("build deduplication distinguishes identical node ids in different catalogs", async () => {
+  const restoreStorage = installMemoryStorage();
+  try {
+    setActivePinia(createPinia());
+    const store = useConnectionStore();
+    store.addEphemeralConnection(conn("conn-1"));
+    const { root, groups } = connectionNodeWithTableGroups("app");
+    const first = { ...groups.app, catalog: "hive" };
+    const second = { ...groups.app, catalog: "iceberg" };
+    root.children = [first, second];
+    store.treeNodes.push(root);
+    listTablesMock.mockImplementation(async (...args: unknown[]) => [{ name: `${args[7]}_orders`, table_type: "TABLE" }]);
+    const results = await Promise.all([first, second].map((node) => store.ensureSidebarTableSearchIndex(node.id, "orders", { connectionId: "conn-1", database: "app", schema: "public", catalog: node.catalog, nodeType: node.type })));
+    expect(results.map((entries) => entries?.[0].name)).toEqual(["hive_orders", "iceberg_orders"]);
+    expect(listTablesMock).toHaveBeenCalledTimes(2);
+    await store.refreshTreeNode(first);
+    const identity = { connectionId: "conn-1", database: "app", schema: "public", nodeType: first.type };
+    expect(await store.loadSidebarTableSearchIndex(first.id, { ...identity, catalog: first.catalog })).toBeNull();
+    expect(await store.loadSidebarTableSearchIndex(second.id, { ...identity, catalog: second.catalog })).toEqual(results[1]);
   } finally {
     restoreStorage();
   }
