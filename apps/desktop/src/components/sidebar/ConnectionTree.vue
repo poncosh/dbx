@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, nextTick, watch, provide, onMounted, onUnmounted, type Component, type ComponentPublicInstance, type CSSProperties } from "vue";
+import { ref, shallowRef, computed, nextTick, watch, provide, onMounted, onUnmounted, type Component, type ComponentPublicInstance, type CSSProperties } from "vue";
 import { useI18n } from "vue-i18n";
 import { translateBackendError } from "@/i18n/backend-errors";
 import { Search, X, ListOrdered, ArrowDownAZ, ArrowUpZA, Server, Database, FolderTree, Table2, Eye, RotateCcw, Loader2, Unplug } from "@lucide/vue";
@@ -562,7 +562,8 @@ async function loadGlobalTableSearchIndexes(shouldCancel: () => boolean): Promis
   }
   const connectionId = store.activeConnectionId;
   if (!connectionId || !store.connectedIds.has(connectionId)) return [];
-  const root = findNodePathByIdentity(store.treeNodes, connectionId, { connectionId, database: "", nodeType: "connection" })?.at(-1);
+  const rootPath = findNodePathByIdentity(store.treeNodes, connectionId, { connectionId, database: "", nodeType: "connection" });
+  const root = rootPath?.[rootPath.length - 1];
   if (!root) return [];
   const databaseScope = resolveSidebarSearchDatabaseScope(root, {
     enabled: settingsStore.editorSettings.sidebarSearchOpenedDatabasesOnly,
