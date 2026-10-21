@@ -10,25 +10,41 @@ export interface SidebarGlobalSearchIndexLoader {
   loadCachedScopes(): Promise<SidebarRegexIndexScope[]>;
   isIndexParent(node: TreeNode): boolean;
   discover(node: TreeNode): Promise<readonly TreeNode[]>;
-  loadIndex(node: TreeNode): Promise<TableInfo[] | null>;
+  loadIndex(node: TreeNode, options?: { refresh?: boolean }): Promise<TableInfo[] | null>;
   onError(node: TreeNode, error: unknown): void;
 }
 
-export async function collectSidebarGlobalSearchIndexes(loader: SidebarGlobalSearchIndexLoader, roots: readonly TreeNode[], connectionId: string, databaseScope: ReadonlySet<string> | null, shouldCancel: () => boolean): Promise<SidebarRegexIndexScope[]> {
+export async function collectSidebarGlobalSearchIndexes(
+  loader: SidebarGlobalSearchIndexLoader,
+  roots: readonly TreeNode[],
+  connectionId: string,
+  databaseScope: ReadonlySet<string> | null,
+  shouldCancel: () => boolean,
+  onProgress?: (scopes: SidebarRegexIndexScope[]) => void,
+): Promise<SidebarRegexIndexScope[]> {
   const cached = await loader.loadCachedScopes();
   if (shouldCancel()) return [];
   const scopedCache = cached.filter((scope) => scope.connectionId === connectionId && (!databaseScope || scope.path?.every((node) => !isSidebarSearchPrunedDatabaseNode(node as TreeNode, databaseScope))));
   const results: SidebarRegexIndexScope[] = [...scopedCache];
+  if (results.length) onProgress?.([...results]);
+  const upsert = (scope: SidebarRegexIndexScope) => {
+    const index = results.findIndex(
+      (candidate) => candidate.parentNodeId === scope.parentNodeId && candidate.nodeType === scope.nodeType && candidate.connectionId === scope.connectionId && candidate.database === scope.database && candidate.schema === scope.schema && candidate.catalog === scope.catalog,
+    );
+    if (index >= 0) results[index] = scope;
+    else results.push(scope);
+    onProgress?.([...results]);
+  };
   const visit = async (node: TreeNode, ancestors: TreeNode[]): Promise<void> => {
     if (shouldCancel() || isSidebarSearchPrunedDatabaseNode(node, databaseScope)) return;
     if (node.connectionId && node.connectionId !== connectionId) return;
     const path = [...ancestors, node];
     try {
       if (loader.isIndexParent(node)) {
-        if (scopedCache.some((scope) => nodeMatchesRegexScopeIdentity(node, scope.parentNodeId, scope))) return;
-        const entries = await loader.loadIndex(node);
+        const cachedScope = scopedCache.find((scope) => nodeMatchesRegexScopeIdentity(node, scope.parentNodeId, scope));
+        const entries = cachedScope ? await loader.loadIndex(node, { refresh: true }) : await loader.loadIndex(node);
         if (entries && !shouldCancel()) {
-          results.push({
+          upsert({
             parentNodeId: node.id,
             connectionId,
             database: node.database ?? "",

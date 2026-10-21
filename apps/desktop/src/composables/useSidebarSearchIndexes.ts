@@ -1,7 +1,7 @@
 import { onScopeDispose, ref, shallowRef, watch, type Ref, type WatchSource } from "vue";
 import type { SidebarRegexIndexScope } from "@/lib/sidebar/sidebarSearchTree";
 
-export function useSidebarSearchIndexes(options: { query: Ref<string>; context: WatchSource[]; load: (shouldCancel: () => boolean) => Promise<SidebarRegexIndexScope[]>; onError: (error: unknown) => void }) {
+export function useSidebarSearchIndexes(options: { query: Ref<string>; context: WatchSource[]; load: (shouldCancel: () => boolean, onProgress: (scopes: SidebarRegexIndexScope[]) => void) => Promise<SidebarRegexIndexScope[]>; onError: (error: unknown) => void }) {
   const scopes = shallowRef<SidebarRegexIndexScope[]>([]);
   const isLoading = ref(false);
   let generation = 0;
@@ -12,8 +12,11 @@ export function useSidebarSearchIndexes(options: { query: Ref<string>; context: 
     isLoading.value = !!options.query.value;
     if (!isLoading.value) return;
     const shouldCancel = () => currentGeneration !== generation || !options.query.value;
+    const publish = (loaded: SidebarRegexIndexScope[]) => {
+      if (!shouldCancel()) scopes.value = loaded;
+    };
     void options
-      .load(shouldCancel)
+      .load(shouldCancel, publish)
       .then((loaded) => {
         if (!shouldCancel()) scopes.value = loaded;
       })

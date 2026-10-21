@@ -63,7 +63,9 @@ Object-tree search can match:
 
 The main sidebar search reuses table/view indexes from memory or the persisted schema cache. When an index is missing, the first search builds it for the eligible scopes in the active, connected datasource. Further edits filter the index locally without reloading the datasource tree. The “Search only opened databases” setting controls which databases are indexed; when none are open, all visible databases are eligible.
 
-Enable **Local search** to search loaded objects and existing cached indexes without building missing indexes or making remote requests. Regex search also uses existing indexes only. Other object types are matched from loaded metadata. You can restrict results by node type or use the separate table search inside a database.
+Other supported object types (including procedures, functions, triggers, sequences, and packages) use debounced, on-demand remote search, even when their group has never been expanded or the object is beyond its first page. Matching pages are cached in memory by keyword and full scope; filtered results are not treated as a complete schema index. Changing the input cancels the previous remote request and discards late results. Search results do not replace the loaded browsing tree.
+
+Enable **Local search** to search loaded objects and existing cached indexes without building missing indexes or making remote requests. Regex search also uses existing indexes only. You can restrict results by node type or use the separate table search inside a database.
 
 Use **Refresh** to update cached metadata after external schema changes. Database and schema refreshes, including refreshes triggered by DBX object changes, invalidate the affected indexes.
 

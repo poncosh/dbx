@@ -131,6 +131,7 @@ export interface SidebarRegexIndexScope {
   schema?: string;
   catalog?: string;
   nodeType: string;
+  stale?: boolean;
   path?: Array<Pick<TreeNode, "id" | "label" | "type" | "connectionId" | "database" | "catalog" | "schema" | "linkedServer" | "linkedCatalog" | "linkedSchema">>;
   entries: TableInfo[];
 }

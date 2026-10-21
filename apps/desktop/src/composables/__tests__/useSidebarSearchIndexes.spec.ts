@@ -6,7 +6,7 @@ import type { TreeNode } from "@/types/database";
 
 const indexed: SidebarRegexIndexScope[] = [{ parentNodeId: "conn:app", connectionId: "conn", database: "app", nodeType: "database", entries: [{ name: "orders", table_type: "TABLE" }] }];
 
-function fixture(load: (shouldCancel: () => boolean) => Promise<SidebarRegexIndexScope[]>) {
+function fixture(load: (shouldCancel: () => boolean, onProgress: (scopes: SidebarRegexIndexScope[]) => void) => Promise<SidebarRegexIndexScope[]>) {
   const scope = effectScope();
   const query = ref("");
   const revision = ref(0);
@@ -38,6 +38,30 @@ describe("global sidebar index session", () => {
       expect(state.scopes.value).toEqual([]);
       expect(load).toHaveBeenCalledTimes(1);
       expect(filterSidebarTree(live, "", new Set())).toBe(live);
+    } finally {
+      state.scope.stop();
+    }
+  });
+
+  it("publishes cached progress while background index preparation is still running", async () => {
+    let finish!: (scopes: SidebarRegexIndexScope[]) => void;
+    const refreshed = [{ ...indexed[0], entries: [...indexed[0].entries, { name: "orders_archive", table_type: "TABLE" }] }];
+    const state = fixture(
+      (_cancel, publish) =>
+        new Promise((resolve) => {
+          publish(indexed);
+          finish = resolve;
+        }),
+    );
+    try {
+      state.query.value = "orders";
+      await nextTick();
+      expect(state.scopes.value).toEqual(indexed);
+      expect(state.isLoading.value).toBe(true);
+      finish(refreshed);
+      await nextTick();
+      await nextTick();
+      expect(state.scopes.value).toEqual(refreshed);
     } finally {
       state.scope.stop();
     }

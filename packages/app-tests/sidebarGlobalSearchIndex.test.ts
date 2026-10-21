@@ -40,6 +40,52 @@ test("uses persisted scopes when a collapsed branch is absent from the live tree
   expect(root.children).toEqual([]);
 });
 
+test("publishes a cached scope first and replaces it after background revalidation", async () => {
+  const { cached, loader, run, tables } = fixture();
+  const cachedFirst = { ...cached, stale: false, entries: [{ name: "Photos", table_type: "TABLE" }] };
+  const refreshed = [
+    { name: "Photos", table_type: "TABLE" },
+    { name: "Photos_Gallery", table_type: "TABLE" },
+  ];
+  loader.loadCachedScopes.mockResolvedValue([cachedFirst]);
+  loader.loadIndex.mockResolvedValue(refreshed);
+  const progress: SidebarRegexIndexScope[][] = [];
+
+  const results = await collectSidebarGlobalSearchIndexes(
+    loader,
+    [
+      {
+        id: "conn",
+        type: "connection",
+        label: "Connection",
+        connectionId: "conn",
+        children: [{ id: "conn:app", type: "database", label: "app", connectionId: "conn", database: "app", children: [{ id: "conn:app:public", type: "schema", label: "public", connectionId: "conn", database: "app", schema: "public", children: [tables] }] }],
+      },
+    ],
+    "conn",
+    null,
+    () => false,
+    (scopes) => progress.push(scopes),
+  );
+
+  expect(progress[0][0].entries.map((entry) => entry.name)).toEqual(["Photos"]);
+  expect(loader.loadIndex).toHaveBeenCalledExactlyOnceWith(tables, { refresh: true });
+  expect(results[0].entries.map((entry) => entry.name)).toEqual(["Photos", "Photos_Gallery"]);
+  expect(progress.at(-1)?.[0].entries.map((entry) => entry.name)).toEqual(["Photos", "Photos_Gallery"]);
+});
+
+test("retains a cached scope when background revalidation fails", async () => {
+  const { cached, loader, run } = fixture();
+  const cachedFirst = { ...cached, stale: false, entries: [{ name: "Photos", table_type: "TABLE" }] };
+  loader.loadCachedScopes.mockResolvedValue([cachedFirst]);
+  loader.loadIndex.mockRejectedValue(new Error("offline"));
+
+  const results = await run();
+
+  expect(results).toEqual([cachedFirst]);
+  expect(loader.onError).toHaveBeenCalledOnce();
+});
+
 test("restricts cached and missing scopes to opened databases", async () => {
   const { root, database, cached, loader, run } = fixture();
   root.children?.push({ ...database, id: "conn:other", database: "other", children: [] });
