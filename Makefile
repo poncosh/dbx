@@ -80,8 +80,10 @@ dev: node_modules/.modules.yaml check-tauri-dev-port
 	$(PNPM) dev:tauri
 
 dev-fast: node_modules/.modules.yaml check-tauri-dev-port
-	set "RUST_MIN_STACK=16777216" && set "CARGO_PROFILE_DEV_DEBUG=line-tables-only" && $(PNPM) dev:tauri -- --no-default-features --features dynamodb,sqlite-bundled,os-keyring,sqlserver-native-attention
-
+	# os-keyring must stay in sync with src-tauri defaults: without it the keychain
+	# key is unreadable and the secret-store migration wizard reappears on every launch.
+	RUST_MIN_STACK=16777216 $(PNPM) dev:tauri -- --no-default-features --features duckdb-sidecar,dynamodb,sqlite-bundled,os-keyring,sqlserver-native-attention
+	
 dev-web: node_modules/.modules.yaml
 	$(PNPM) dev:web
 
